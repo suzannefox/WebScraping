@@ -4,3 +4,4 @@ Storage/
 bootstrap/cache/
 test.ipynb
 create-df-devel.ipynb
+.Rproj.user
