@@ -98,11 +98,6 @@ df_planets <- df_planets_orig %>%
   mutate(recent_observations = gsub("\\(", "", recent_observations)) %>% 
   mutate(total_obs = as.integer(word(recent_observations, 4, sep = ' '))) %>%
   mutate(recent_obs = as.integer(word(recent_observations, 5, sep = ' '))) %>% 
-  # useful data for choosing
-  select(original_lineno, reject, observatory, note, planet, status, optimal, oc,
-         total_obs, recent_obs,
-         t_before_date, t_before_time, t_after_time, time_span,
-         illumination, distance) %>% 
   identity()
 
 # df_planets %>% 
@@ -111,8 +106,15 @@ df_planets <- df_planets_orig %>%
 #   left_join(df_moonphases, by=c('t_before_date' = 'date')) %>% 
 #   identity() 
 
-df_planets_potential <- df_planets %>% filter(reject == FALSE)
-
+df_planets_potential <- df_planets %>% 
+  filter(reject == FALSE) %>% 
+  # useful data for choosing
+  select(original_lineno, reject, observatory, note, planet, status, optimal, oc,
+         total_obs, recent_obs,
+         t_before_date, t_before_time, t_after_time, time_span,
+         illumination, distance) %>% 
+  identity()
+  
 # -------------------------------------------------------------------------
 
 df_planets %>% 
@@ -137,3 +139,20 @@ df_planets %>%
   filter(reject == FALSE) %>% 
   select(oc,  total_obs, recent_obs)
 
+# -------------------------------------------------------------------------
+
+df_planets %>% 
+  filter(reject_baddate == FALSE) %>% 
+  filter(reject_redfont == FALSE) %>% 
+  filter(reject_toolong == FALSE) %>% 
+  filter(reject_toobright == FALSE) %>% 
+  # tally() %>% 
+  identity()
+
+df_planets_potential %>% 
+  filter(optimal) %>% 
+  select(optimal, original_lineno, observatory, planet, status, oc, total_obs, recent_obs, 
+         time_span, t_before_date,
+         illumination, distance) %>% 
+  arrange(total_obs) %>% 
+  View()
