@@ -1,87 +1,25 @@
 library(tidyverse)
 library(lubridate)
+library(glue)
 
+source('C:\\Users\\suzan\\Documents\\R\\burrow\\burrow.R')
+source('Filters-supplement.R')
 # -------------------------------------------------------------------------
 
-file_planets <- '2025-02-19_exoclock_schedule.csv'
-
-df_planets_orig <- read_csv(file_planets)
-
-df_moonphases <- tibble::tribble(
-~date,~phase,
-"2025-03-14",100,
-"2025-03-15",92.8,
-"2025-03-16",85.7,
-"2025-03-17",78.5,
-"2025-03-18",71.4,
-"2025-03-19",64.2,
-"2025-03-20",57.1,
-"2025-03-21",50,
-"2025-03-22",43.75,
-"2025-03-23",37.5,
-"2025-03-24",31.25,
-"2025-03-25",25,
-"2025-03-26",18.75,
-"2025-03-27",12.5,
-"2025-03-28",6.25,
-"2025-03-29",0,
-"2025-03-30",6.25,
-"2025-03-31",12.5,
-"2025-04-01",18.75,
-"2025-04-02",25,
-"2025-04-03",31.25,
-"2025-04-04",37.5,
-"2025-04-05",43.75,
-"2025-04-06",50,
-"2025-04-07",57.1,
-"2025-04-08",64.2,
-"2025-04-09",71.4,
-"2025-04-10",78.5,
-"2025-04-11",85.77,
-"2025-04-12",92.8,
-"2025-04-13",100,
-"2025-04-14",92.8,
-"2025-04-15",85.7,
-"2025-04-16",78.5,
-"2025-04-17",71.4,
-"2025-04-18",64.2,
-"2025-04-19",57.1,
-"2025-04-20",50,
-"2025-04-21",43.75,
-"2025-04-22",37.5,
-"2025-04-23",31.25,
-"2025-04-24",25,
-"2025-04-25",18.75,
-"2025-04-26",12.5,
-"2025-04-27",6.25,
-"2025-04-28",0,
-"2025-04-29",7.1,
-"2025-04-30",14.2,
-"2025-05-01",21.4,
-"2025-05-02",28.5,
-"2025-05-03",35.7,
-"2025-05-04",42.85,
-"2025-05-05",50,
-"2025-05-06",57.1,
-"2025-05-07",64.2,
-"2025-05-08",71.4,
-"2025-05-09",78.5,
-"2025-05-10",85.7,
-"2025-05-11",92.8,
-"2025-05-12",100,
-"2025-05-13",92.8,
-"2025-05-14",85.7) %>% 
-  mutate(date = as.Date(date))
+file_transits <- '2025-02-19_exoclock_schedule.csv'
+df_transits_orig <- read_csv(file_transits)
 
 # -------------------------------------------------------------------------
-df_planets <- df_planets_orig %>% 
+df_transits <- df_transits_orig %>% 
   mutate(original_lineno = row_number()) %>% 
   # REJECT if either ingress or egress is in red font
   mutate(reject_redfont = t_before_red | t_after_red) %>% 
   # REJECT if date isn't between mid-March and mid-May
   mutate(reject_baddate = case_when(t_before_date >= '2025-03-14' & t_before_date <= '2025-05-14' ~ FALSE, T ~ TRUE)) %>% 
   # calculate time span between 1 hr before to 1 hr after
-  mutate(time_span = difftime(t_after_time, t_before_time, units="hours")) %>% 
+  mutate(ingress = as.POSIXct(paste(t_before_date, t_before_time), format = "%Y-%m-%d %H:%M")) %>% 
+  mutate(egress = as.POSIXct(paste(t_after_date, t_after_time), format = "%Y-%m-%d %H:%M")) %>% 
+  mutate(time_span = difftime(egress, ingress, units="hours")) %>% 
   # REJECT if time is more than 6 hours
   mutate(reject_toolong = time_span > 6) %>% 
   # moon illumination 
@@ -89,38 +27,79 @@ df_planets <- df_planets_orig %>%
   mutate(distance = round(as.numeric(str_remove(moon_distance, '°')))) %>% 
   # REJECT if illumination is >= 50 and distance <= 90
   mutate(reject_toobright = case_when(illumination > 50 & distance < 90 ~ TRUE, T ~ FALSE)) %>% 
+  # REJECT if there are multiple entries with very different transit times
+  mutate(reject_badtiming = case_when(planet == 'WASP-36b' & time_span < 3 ~ 'should be 3.81',
+                                      planet == 'WASP-41b' & time_span < 4 ~ 'should be 4.6',
+                                      T ~ 'OK')) %>% 
   # REJECT for any reason
-  mutate(reject = reject_redfont | reject_baddate | reject_toolong | reject_toobright) %>% 
+  mutate(reject = reject_redfont | reject_baddate | reject_toolong | reject_toobright | reject_badtiming != 'OK') %>% 
   # note says this is optimal
-  mutate(optimal = str_detect(note, 'OPTIMAL')) %>% 
+  mutate(optimal = coalesce(str_detect(note, 'OPTIMAL'), FALSE)) %>% 
   # recent observations 
   mutate(recent_observations = gsub("\\)", "", recent_observations)) %>% 
   mutate(recent_observations = gsub("\\(", "", recent_observations)) %>% 
   mutate(total_obs = as.integer(word(recent_observations, 4, sep = ' '))) %>%
   mutate(recent_obs = as.integer(word(recent_observations, 5, sep = ' '))) %>% 
+  mutate(status = factor(status, levels = c('ALERT','HIGH','MEDIUM','LOW','CAMPAIGNLOW','TTVs'))) %>% 
   identity()
 
-# df_planets %>% 
-#   filter(reject == FALSE) %>% 
-#   select(t_before_date, moon_illumination, moon_distance) %>%
-#   left_join(df_moonphases, by=c('t_before_date' = 'date')) %>% 
-#   identity() 
+print(glue('Start with {df_transits %>% tally() %>% pull()}'))
+print(glue('Remove baddates, leaves {df_transits %>% filter(reject_baddate == FALSE) %>% tally() %>% pull()}'))
+print(glue('Remove redfont, leaves {df_transits %>% filter(reject_baddate == FALSE & reject_redfont == FALSE) %>% tally() %>% pull()}'))
+print(glue('Remove toolong, leaves {df_transits %>% filter(reject_baddate == FALSE & reject_redfont == FALSE & reject_toolong == FALSE) %>% tally() %>% pull()}'))
+print(glue('Remove toobright, leaves {df_transits %>% filter(reject_baddate == FALSE & reject_redfont == FALSE & reject_toolong == FALSE & reject_toobright == FALSE) %>% tally() %>% pull()}'))
 
-df_planets_potential <- df_planets %>% 
+df_transits_potential <- df_transits %>% 
+  filter(reject_baddate == FALSE) %>% 
+  filter(reject_redfont == FALSE) %>% 
+  filter(reject_toolong == FALSE) %>% 
+  filter(reject_toobright == FALSE) %>% 
   filter(reject == FALSE) %>% 
-  # useful data for choosing
-  select(original_lineno, reject, observatory, note, planet, status, optimal, oc,
-         total_obs, recent_obs,
-         t_before_date, t_before_time, t_after_time, time_span,
-         illumination, distance) %>% 
   identity()
-  
+
+# check
+df_transits_potential %>% count(reject)
+df_transits_potential %>% distinct(planet)
+
+count_optimal <- df_transits %>% 
+  filter(reject == FALSE) %>% 
+  filter(optimal) %>% 
+  tally() %>% 
+  pull()
+
+# -------------------------------------------------------------------------
+# planets represented by those transits
+
+df_planets <- df_transits_potential %>% 
+  count(planet, status, optimal, oc) %>% 
+  rename(potential_transits = n) %>% 
+  arrange(status) %>% 
+  identity()
+
+df_planets_obs <- df_transits_potential %>% 
+  distinct(planet, total_obs, recent_obs)
+
+df_transit_dates <- df_transits_potential %>%
+  arrange(planet, t_before_date) %>% 
+  mutate(where = str_remove(observatory, ' Observatory')) %>% 
+  mutate(transit = glue('{where} {t_before_date}')) %>% 
+  group_by(planet) %>%
+  summarise(dates = paste((transit), collapse = ", "))
+
+df_planets <- df_planets %>% 
+  left_join(df_planets_obs, by = 'planet') %>% 
+  left_join(df_transit_dates, by = 'planet')
+
+df_planets <- df_planets %>% 
+  mutate(discovered = word(planet, 1, sep='-'), .before = 1)
+
+df_planets 
 # -------------------------------------------------------------------------
 
-df_planets %>% 
+df_transits %>% 
   filter(reject == FALSE) %>% 
   ggplot(aes(distance, illumination, color = status)) +
-  geom_point(size = 1, alpha = 0.7) +
+  geom_point(size = 2, alpha = 0.7) +
   labs(
     title = "Moon Illumination vs Moon Distance",
     x = "Distance",
@@ -129,30 +108,72 @@ df_planets %>%
   ) +
   theme_minimal()
 
+myplanet <- 'HATS-37Ab'
+df_choice <- df_transits_potential %>% 
+  filter(planet == myplanet) %>% 
+  arrange(t_before_date)
+
+for (i in 1:nrow(df_choice)) {
+
+  if (i == 1){
+    print(paste(" Planet: ", df_choice$planet[i], " status:", df_choice$status[i]))
+    print(glue("observations : total {df_choice$total_obs[i]}, recent {df_choice$recent_obs[i]}"))
+    print(glue("{df_choice$oc[i]}"))
+    print('')
+    } 
+  
+  observatory <- df_choice$observatory[i]
+  date <- df_choice$t_before_date[i]
+  time <- df_choice$t_before_time[i]
+  
+  print(glue('Choice {i}'))
+  print(paste("Observatory: ", df_choice$observatory[i]))
+  print(glue('date {date}, {time}'))
+} 
+
+df_transits %>% 
+  filter(reject == FALSE) %>% 
+  filter(planet == myplanet) %>% 
+  mutate(time_span = round(time_span, 1)) %>% 
+  mutate(observatory = str_remove(observatory, ' Observatory')) %>% 
+  mutate(t_before_time = substr(t_before_time,1,5)) %>% 
+  mutate(point_label = glue('{observatory}\n{planet} {time_span}H\n{t_before_date} {t_before_time}')) %>% 
+  ggplot(aes(distance, illumination, color = status)) +
+  scale_x_continuous(limits = c(80, NA)) +
+  scale_y_continuous(limits = c(NA, 45)) +
+  geom_point(size = 3, alpha = 0.7) +
+  geom_text(aes(label = point_label), vjust = -0.05, hjust = 1.5, size = 3) +  # Add text labels
+  labs(
+    title = glue("Moon Illumination vs Moon Distance - ({myplanet})"),
+    x = "Distance",
+    y = "Illumination",
+    color = "Status"
+  ) +
+  theme_minimal()
+
 # -------------------------------------------------------------------------
 
-df_planets %>% 
-  filter(reject == FALSE) %>% 
-  count(optimal, note)
+tab_planets <- df_transits_potential %>% 
+  count(planet, oc, status, optimal, total_obs, recent_obs, time_span) %>% 
+  pivot_wider(names_from = observatory, values_from = n, values_fill = 0)
 
-df_planets %>% 
-  filter(reject == FALSE) %>% 
-  select(oc,  total_obs, recent_obs)
+tab_planets <- tab_planets %>% 
+  left_join(df_transits_potential %>% count(planet) %>% rename(Total = n),
+            by = planet)
 
-# -------------------------------------------------------------------------
+tab_planets <- tab_planets %>% 
+  left_join(
+    df_transits_potential %>% 
+      count(planet, observatory) %>% 
+      pivot_wider(names_from = observatory, values_from = n, values_fill = 0), by = 'planet'
+  ) 
 
-df_planets %>% 
-  filter(reject_baddate == FALSE) %>% 
-  filter(reject_redfont == FALSE) %>% 
-  filter(reject_toolong == FALSE) %>% 
-  filter(reject_toobright == FALSE) %>% 
-  # tally() %>% 
-  identity()
+tab_planets %>% arrange(status)
 
-df_planets_potential %>% 
+df_transits_potential %>% 
   filter(optimal) %>% 
   select(optimal, original_lineno, observatory, planet, status, oc, total_obs, recent_obs, 
          time_span, t_before_date,
          illumination, distance) %>% 
   arrange(total_obs) %>% 
-  View()
+  identity()
