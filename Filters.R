@@ -94,6 +94,7 @@ df_planets <- df_planets %>%
   mutate(discovered = word(planet, 1, sep='-'), .before = 1)
 
 df_planets 
+# write.csv(df_planets, '2025-02-22_PotentialPlanets.csv')
 # -------------------------------------------------------------------------
 
 df_transits %>% 
@@ -109,6 +110,7 @@ df_transits %>%
   theme_minimal()
 
 myplanet <- 'HATS-37Ab'
+link <- 'https://ui.adsabs.harvard.edu/abs/2020AJ....160..222J/abstract'
 df_choice <- df_transits_potential %>% 
   filter(planet == myplanet) %>% 
   arrange(t_before_date)
